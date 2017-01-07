@@ -1,0 +1,895 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>GraphQL and Perl 6</title>
+    <meta charset="utf-8">
+    <link rel="stylesheet" type="text/css" href="styles.css">
+  </head>
+  <body>
+    <textarea id="source">
+
+class: center, middle
+
+<img src="logo.svg" width="100" height="100">
+
+# GraphQL and Perl 6
+
+Curt Tilmes
+
+*Curt.Tilmes@nasa.gov*
+
+*Philadelphia Perl Mongers*
+
+2017-01-09
+
+---
+
+# Introduction
+
+* GraphQL invented by Facebook to improve mobile app performance
+
+* Now widely used within Facebook, and growing in popularity
+
+* Open Source reference implementation and specification at
+[graphql.org](http://graphql.org)
+
+* Implementations: Javascript, Ruby, PHP, Python, Java, C/C++, Go,
+Scala, .NET, Elixir, Haskell, SQL, Lua, Elm, Clojure, Swift, OCaml
+
+* Many are migrating from RESTful APIs to GraphQL.
+
+* Often multiple REST queries can be merged into a single GraphQL
+query with a single round trip client to server.
+
+* Check out [https://developer.github.com/early-access/graphql/](https://developer.github.com/early-access/graphql/)
+
+---
+
+# Hello World
+
+```
+use GraphQL;
+
+class Query
+{
+    method hello(--> Str) { 'Hello World' }
+}
+
+my $schema = GraphQL::Schema.new(Query);
+
+say $schema.execute('{ hello }').to-json;
+```
+--
+
+```response
+{
+  "data": {
+    "hello": "Hello World"
+  }
+}
+```
+
+---
+
+![](graphql1.svg)
+
+---
+
+# Hello World GraphQL Server
+
+```
+use GraphQL;
+`use GraphQL::Server;`
+
+class Query
+{
+    method hello(--> Str) { 'Hello World' }
+}
+
+my $schema = GraphQL::Schema.new(Query);
+
+`GraphQL-Server($schema);`
+
+```
+
+* Wraps `$schema.execute()` in a simple Bailador server
+
+--
+
+* HTTP POST GraphQL Query to `/graphql`
+
+  * JSON response comes back
+
+--
+
+* HTTP GET `/graphql` with no parameters
+
+  * returns Facebook Graph*i*QL IDE
+
+---
+
+<img src="hello-graphiql.png" width="100%">
+
+---
+
+![](graphql2.svg)
+
+---
+
+# Perl Schema definition
+
+* Three styles:
+
+  1. Manual
+
+  2. GraphQL Schema Language (GSL)
+
+  3. Perl 6 Class introspection
+
+--
+
+* All result in the same schema
+
+  * GSL is just parsed to produce the manual objects
+
+  * Perl objects are introspected with Perl 6's Metamodel
+
+--
+
+* Can be inter-mixed as desired
+
+---
+
+# Manual Schema Creation
+
+```
+my $schema = GraphQL::Schema.new(
+    GraphQL::Object.new(
+        name => 'Query',
+        fieldlist => GraphQL::Field.new(
+            name => 'hello',
+            type => $GraphQLString,
+            resolver => sub { 'Hello World' }
+        )
+    )
+);
+```
+
+* GraphQL is strongly, staticly typed
+
+* GraphQL Types can have a 'name' and 'description'
+
+* GraphQL Fields can have a resolver
+
+---
+
+# Some of the GraphQL classes
+
+  GraphQL Type | Perl Class
+  ------------ | ----------
+  String       | GraphQL::String
+  Int          | GraphQL::Int
+  Float        | GraphQL::Float
+  Boolean      | GraphQL::Boolean
+  ID           | GraphQL::ID
+  Scalar       | GraphQL::Scalar
+  List         | GraphQL::List
+  Non-Null     | GraphQL::Non-Null
+  Object/Type  | GraphQL::Object
+  Field        | GraphQL::Field
+  Interface    | GraphQL::Interface
+  Enum         | GraphQL::Enum
+  Union        | GraphQL::Union
+  Input        | GraphQL::Input
+
+---
+
+# GraphQL Schema Language (GSL)
+
+```
+my $schema = GraphQL::Schema.new('type Query { hello: String }',
+    resolvers =>
+    {
+        Query =>
+        {
+            hello => sub { 'Hello World' } 
+        }
+    }
+);
+```
+
+* Compatible with many other language's schema definitions
+
+* Pass a two level hash with resolving functions.  Object/Field.
+
+---
+
+<img src="graphql-shorthand-notation-cheat-sheet.png" width="100%">
+
+---
+
+# Perl 
+
+```
+class Query
+{
+    method hello(--> Str) { 'Hello World' }
+}
+
+my $schema = GraphQL::Schema.new(Query);
+```
+
+--
+
+* Some restrictions on how you construct your objects.
+
+* All named/typed arguments, including typed return.
+
+--
+
+| GraphQL Type | Perl Type           |
+|--------------|---------------------|
+| String       | Str                 |
+| Int          | Int                 |
+| Float        | Num                 |
+| Boolean      | Bool                |
+| ID           | ID (subset of Cool) |
+
+---
+
+# Example Database
+
+```
+class User
+{
+    has Int $.id;
+    has Str $.name;
+    has Str $.birthday;
+    has Bool $.status;
+}
+
+my User @users =
+    User.new(id => "0",
+             name => 'Gilligan',
+             birthday => 'Friday',
+             status => True),
+    User.new(id => "1",
+             name => 'Skipper',
+             birthday => 'Monday',
+             status => False),
+    User.new(id => "2",
+             name => 'Professor',
+             birthday => 'Tuesday',
+             status => True);
+```
+
+---
+
+# Example Schema (GSL):
+
+```
+type User {
+  id: ID!
+  name: String!
+  birthday: String
+  status: Boolean
+}
+
+type Query {
+  user(id: ID!): User
+  listusers(start: ID = "0", count: Int = 3): [User]
+}
+
+```
+
+--
+
+```
+my $resolvers = {
+    Query => {
+        user => sub (:$id) {
+            @users[$id]
+        },
+        listusers => sub (:$start, :$count) {
+            @users[$start ..^ $start+$count]
+        }
+    }
+};
+```
+---
+
+# Example Schema (Perl)
+
+```
+class User
+{
+    has ID:D $.id is required;
+    has Str:D $.name is required;
+    has Str $.birthday;
+    has Bool $.status;
+}
+```
+
+--
+
+```
+class Query
+{
+    method user(ID :$id! --> User)
+    {
+        @users[$id]
+    }
+
+    method listusers(ID :$start = "0", Int :$count = 3 --> Array[User])
+    {
+        Array[User].new(@users[$start ..^ $start+$count])
+    }
+}
+```
+
+--
+
+```
+my $schema = GraphQL::Schema.new(User, Query);
+```
+
+---
+
+# Simple Query
+
+.left-col[
+```query
+{
+  user(id: "0") {
+    name
+    birthday
+    status
+  }
+}
+```]
+
+--
+
+.right-col[
+```response
+{
+  "data": {
+    "user": {
+      "name": "Gilligan",
+      "birthday": "Friday",
+      "status": "true"
+    }
+  }
+}
+```]        
+
+---
+
+# Multiple queries, distinguish with aliases
+
+.left-col[
+```query
+{
+  `a:` user(id: "0") {
+    name
+    birthday
+    status
+  }
+  `b:` user(id: "1") {
+    name
+    birthday
+    status
+  }
+}
+```]
+
+--
+
+.right-col[
+```response
+{
+  "data": {
+    "a": {
+      "name": "Gilligan",
+      "birthday": "Friday",
+      "status": "true",
+    },
+    "b": {
+      "name": "Skipper",
+      "birthday": "Monday",
+      "status": "false",
+    }
+  }
+}
+```]
+
+---
+
+# Reuse fieldlists with fragments
+
+.left-col[
+```query
+{
+  a: user(id: "0") {
+    `...somefields`
+  }
+  b: user(id: "1"){
+    `...somefields`
+  }
+}
+
+fragment somefields on User {
+  name
+  birthday
+  status
+}
+```]
+
+--
+
+.right-col[
+```response
+{
+  "data": {
+    "a": {
+      "name": "Gilligan",
+      "birthday": "Friday",
+      "status": "true",
+    },
+    "b": {
+      "name": "Skipper",
+      "birthday": "Monday",
+      "status": "false",
+    }
+  }
+}
+```]
+
+---
+
+.left-col[
+```query
+{
+  listusers(start: "1",
+            count: 3) {
+    ...somefields
+  }
+}
+```]
+
+--
+
+.right-col[
+```response
+{
+  "data": {
+    "listusers": [
+      {
+        "name": "Skipper",
+        "birthday": "Monday",
+        "status": "false"
+      },
+      {
+        "name": "Professor",
+        "birthday": "Tuesday",
+        "status": "true"
+      },
+      {
+        "name": "Ginger",
+        "birthday": "Wednesday",
+        "status": "true"
+      }
+    ]
+  }
+}
+```]
+
+---
+
+# Example - Enum
+```
+`enum State <NOT_FOUND ACTIVE INACTIVE SUSPENDED>;`
+
+class User
+{
+    has ID:D $.id is required;
+    has Str:D $.name is required;
+    has Str $.birthday;
+    has Bool $.status;
+    `has State $.state;`
+}
+
+
+my $schema = GraphQL::Schema.new(`State,` User, Query);
+
+```
+
+---
+
+.left-col[
+```query
+{
+  listusers(start: "1",
+            count: 3) {
+    name
+    birthday
+    status
+    state
+  }
+}
+```]
+
+.right-col[
+```response
+{
+  "data": {
+    "listusers": [
+      {
+        "name": "Skipper",
+        "birthday": "Monday",
+        "status": "false",
+        "state": "ACTIVE"
+      },
+      {
+        "name": "Professor",
+        "birthday": "Tuesday",
+        "status": "true",
+        "state": "INACTIVE"
+      },
+      {
+        "name": "Ginger",
+        "birthday": "Wednesday",
+        "status": "true",
+        "state": "SUSPENDED"
+      }
+    ]
+  }
+}```]
+
+---
+
+# Input Object
+
+```
+class UserInput `is GraphQL::InputObject`
+{
+    has Str $.name;
+    has Str $.birthday;
+    has Bool $.status;
+    has State $.state;
+}
+```
+
+---
+
+# Mutation
+
+```
+class Mutation
+{
+    method adduser(UserInput :$newuser! --> ID) {
+        push @users, User.new(id => @users.elems,
+                              name => $newuser.name,
+                              birthday => $newuser.birthday,
+                              status => $newuser.status,
+                              state => $newuser.state);
+        return @users.elems - 1;
+    }
+
+    method updateuser(ID :$id!, UserInput :$userinput! --> User) {
+        for <name birthday status state> -> $field {
+            if $userinput."$field"().defined {
+                @users[$id]."$field"() = $userinput."$field"();
+            }
+        }
+        return Query.user(:$id);
+    }
+}
+
+my $schema = GraphQL::Schema.new(State, User, Query, `UserInput, Mutation`);
+```
+---
+
+```query
+mutation {
+  adduser(newuser: { name: "Thurston" })
+}
+```
+
+--
+
+```response
+{
+  "data": {
+    "adduser": "5"
+  }
+}
+```
+
+--
+
+.left-col[
+```query
+{
+  user(id: "5") {
+    name
+    birthday
+    status
+    state
+  }
+}
+```]
+
+--
+
+.right-col[
+```response
+{
+  "data": {
+    "user": {
+      "name": "Thurston",
+      "birthday": null,
+      "status": "false",
+      "state": null
+    }
+  }
+}```]
+
+---
+
+# Include variables
+
+.left-col[
+```query
+mutation (`$bday: String`) {
+  updateuser(id: "5",
+             userinput: {
+               birthday: `$bday`,
+               state: ACTIVE
+             })
+  {
+    name
+    birthday
+    status
+    state
+  }
+}
+```
+```
+{
+  "bday":"May 1"
+}
+```
+
+* Variables in JSON
+]
+
+--
+
+.right-col[
+```response
+{
+  "data": {
+    "updateuser": {
+      "name": "Thurston",
+      "birthday": "May 1",
+      "status": "false",
+      "state": "ACTIVE"
+    }
+  }
+}```]
+
+---
+
+# Variable data structure
+
+```query
+mutation (`$newuser`: UserInput) {
+  adduser(newuser: `$newuser`)
+}
+```
+--
+
+```
+{
+  "newuser": {
+    "name": "Lovey",
+    "birthday": "Oct 17",
+    "status": true,
+    "state": "INACTIVE"
+  }
+}
+```
+
+--
+
+```response
+{
+  "data": {
+    "adduser": "6"
+  }
+}
+```
+
+---
+
+# Control fields with directives (false)
+
+.left-col[
+```query
+query ($extrafields: Boolean) {
+  listusers(count: 2) {
+    id @skip(if: $extrafields)
+    name
+    ...extrafields
+      @include(if: $extrafields)
+  }
+}
+
+fragment extrafields on User {
+  birthday
+  status
+  state
+}
+```
+```
+{
+  "extrafields": `false`
+}
+```]
+
+.right-col[
+```response
+{
+  "data": {
+    "listusers": [
+      {
+        "id": "0",
+        "name": "Gilligan"
+      },
+      {
+        "id": "1",
+        "name": "Skipper"
+      }
+    ]
+  }
+}
+```]
+
+---
+
+# Control fields with directives (true)
+
+.left-col[
+```query
+query ($extrafields: Boolean) {
+  listusers(count: 2) {
+    id @skip(if: $extrafields)
+    name
+    ...extrafields
+      @include(if: $extrafields)
+  }
+}
+
+fragment extrafields on User {
+  birthday
+  status
+  state
+}
+```
+```
+{
+  "extrafields": `true`
+}
+```]
+
+.right-col[
+```response
+{
+  "data": {
+    "listusers": [
+      {
+        "name": "Gilligan",
+        "birthday": "Friday",
+        "status": "true",
+        "state": "NOT_FOUND"
+      },
+      {
+        "name": "Skipper",
+        "birthday": "Monday",
+        "status": "false",
+        "state": "ACTIVE"
+      }
+    ]
+  }
+}
+```]
+
+---
+
+# Use promises to do slow queries in parallel
+
+
+* Resolver can return promise:
+
+```
+user => sub (:$id)
+{
+    `start {`
+        sleep 2;
+        @users[$id];
+    `}`
+}
+```
+
+--
+
+* Perl method is typed, it can't return a promise, use trait
+
+```
+method user(ID :$id! --> User) `is graphql-background`
+{
+    sleep 2;
+    @users[$id];
+}
+```
+
+---
+
+# GraphQL
+
+* Individual fields and enum values can be marked deprecated, but
+still work
+
+--
+
+* A query can be validated against a schema prior to execution.
+
+--
+
+* A parsed, validated query could be cached.  Some applications just
+identify pre-validated queries by identifier rather than allowing
+arbitrary queries.
+
+--
+
+* Reuse queries with variables for things that change rather than
+making a new query.
+
+--
+
+* Client libraries and tools are rapidly developing, including client
+side validation and caching.
+
+---
+
+# Conclusion
+
+* Perl 6 implementation still restricted access, but contact me if you
+are interested in it.
+
+--
+
+* Loads more information available at [graphql.org](http://graphql.org),
+ including many youtube videos of talks.
+
+* Almost all public information about GraphQL fully applies to the
+Perl 6 version.
+
+--
+
+##.center[Thank You!]
+
+    </textarea>
+    <script src="https://remarkjs.com/downloads/remark-latest.min.js">
+    </script>
+    <script>
+      var slideshow = remark.create({
+        highlightLanguage: 'perl',
+        highlightStyle: 'magula',
+        highlightLines: true,
+        highlightSpans: true
+      });
+    </script>
+  </body>
+</html>
