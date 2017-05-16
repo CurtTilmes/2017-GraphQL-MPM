@@ -18,9 +18,9 @@ Curt Tilmes
 
 *Curt.Tilmes@nasa.gov*
 
-*Philadelphia Perl Mongers*
+*Milwaukee Perl Mongers*
 
-2017-01-09
+2017-05-31
 
 ---
 
@@ -34,7 +34,8 @@ Curt Tilmes
 [graphql.org](http://graphql.org)
 
 * Implementations: Javascript, Ruby, PHP, Python, Java, C/C++, Go,
-Scala, .NET, Elixir, Haskell, SQL, Lua, Elm, Clojure, Swift, OCaml
+Scala, .NET, Elixir, Haskell, SQL, Lua, Elm, Clojure, Swift,
+OCaml... AND Perl 6!
 
 * Many are migrating from RESTful APIs to GraphQL.
 
@@ -58,6 +59,22 @@ class Query
 my $schema = GraphQL::Schema.new(Query);
 
 say $schema.execute('{ hello }').to-json;
+```
+---
+
+# Hello World
+
+```
+use GraphQL;
+
+class Query
+{
+    method hello(--> Str) { 'Hello World' }
+}
+
+my $schema = GraphQL::Schema.new(Query);
+
+say $schema.execute('`{ hello }`').to-json;
 ```
 --
 
@@ -113,6 +130,14 @@ my $schema = GraphQL::Schema.new(Query);
 ---
 
 ![](graphql2.svg)
+
+* Pass three things in: Query Document, Operation Name, and Variables
+
+* Schema coordinates Validation and Execution
+
+* Introspection allows Execution of queries on the Schema itself
+
+* Execution calls your code for Resolution of Objects and Fields
 
 ---
 
@@ -192,7 +217,7 @@ my $schema = GraphQL::Schema.new('type Query { hello: String }',
     {
         Query =>
         {
-            hello => sub { 'Hello World' } 
+            hello => sub { 'Hello World' }
         }
     }
 );
@@ -208,12 +233,12 @@ my $schema = GraphQL::Schema.new('type Query { hello: String }',
 
 ---
 
-# Perl 
+# Perl
 
 ```
 class Query
 {
-    method hello(--> Str) { 'Hello World' }
+    method hello() returns Str { 'Hello World' }
 }
 
 my $schema = GraphQL::Schema.new(Query);
@@ -236,404 +261,431 @@ my $schema = GraphQL::Schema.new(Query);
 | ID           | ID (subset of Cool) |
 
 ---
+# Example
 
-# Example Database
+* We're going to model the Perl 6 Modules List
 
-```
-class User
-{
-    has Int $.id;
-    has Str $.name;
-    has Str $.birthday;
-    has Bool $.status;
-}
+* Three primary types: **Author**, **Tag**, and **Distribution**
 
-my User @users =
-    User.new(id => "0",
-             name => 'Gilligan',
-             birthday => 'Friday',
-             status => True),
-    User.new(id => "1",
-             name => 'Skipper',
-             birthday => 'Monday',
-             status => False),
-    User.new(id => "2",
-             name => 'Professor',
-             birthday => 'Tuesday',
-             status => True);
-```
+* A **Distribution** can have 1 **Author** and 0 or more **Tag**s
+
+* An **Author** can have 1 or more **Distribution**s
+
+* A **Tag** can have 1 or more **Distribution**s
 
 ---
+# Example - Redis Database
 
-# Example Schema (GSL):
+* [Redis](https://redis.io/) is a very nice (very fast) NoSQL database
+
+* It can store many different data structures, including **Set**
+
+* We're going to access it with [Redis::Async](https://github.com/CurtTilmes/perl6-eredis)
+
+* Grab the JSON modules list from [https://modules.perl6.org/.json](https://modules.perl6.org/.json)
+
+---
+# Example, Loading Redis
+
+- For each distribution
+
+    - Add the author_id to the *authors* **Set**
+
+    - Add the name to the *dists* **Set**
+
+    - Store the distribution JSON Hash in *dist:(name)*
+
+    - Store the author JSON Hash in *author:(author_id)*
+
+    - Add the distribution name to the *author-dist:(author_id)* **Set**
+
+    - For each tag
+
+      - Add the tag to the *tags* **Set**
+
+      - Add the tag JSON Hash to *tag:(tag)*
+
+      - Add the distribution name to the *tag-dist:(tag)* **Set**
+---
+# Example, Loading Redis
 
 ```
-type User {
-  id: ID!
-  name: String!
-  birthday: String
-  status: Boolean
-}
+    for jget('https://modules.perl6.org/.json')<dists>.list -> $dist
+    {
+        $r.sadd("authors", $dist<author_id>, :async);
+        $r.sadd("dists", $dist<name>, :async);
 
-type Query {
-  user(id: ID!): User
-  listusers(start: ID = "0", count: Int = 3): [User]
-}
+        $r.setnx("dist:$dist<name>", to-json($dist), :async);
 
-```
+        my $author-rec = { author_id => $dist<author_id> };
+        $r.setnx("author:$dist<author_id>", to-json($author-rec), :async);
 
---
+        $r.sadd("author-dist:$dist<author_id>", $dist<name>, :async);
 
-```
-my $resolvers = {
-    Query => {
-        user => sub (:$id) {
-            @users[$id]
-        },
-        listusers => sub (:$start, :$count) {
-            @users[$start ..^ $start+$count]
+        for $dist<tags>.list -> $tag
+        {
+            $r.sadd("tags", $tag, :async);
+
+            my $tag-rec = { tag => $tag };
+            $r.setnx("tag:$tag", to-json($tag-rec), :async);
+
+            $r.sadd("tag-dist:$tag", $dist<name>, :async);
         }
     }
-};
 ```
 ---
-
-# Example Schema (Perl)
+# Example, Simple Model to Access Data
 
 ```
-class User
+class Model
 {
-    has ID:D $.id is required;
-    has Str:D $.name is required;
-    has Str $.birthday;
-    has Bool $.status;
+    method authors()
+    { $r.smembers('authors') }
+
+    method distributions()
+    { $r.smembers('dists') }
+
+    method tags()
+    { $r.smembers('tags') }
+
+    method author($author_id)
+    { from-json $r.get("author:$author_id") }
+
+    method distribution($name)
+    { from-json $r.get("dist:$name") }
+
+    method tag($tag)
+    { from-json $r.get("tag:$tag") }
+
+    method author-distributions($author_id)
+    { $r.smembers("author-dist:$author_id") }
+
+    method tag-distributions($tag)
+    { $r.smembers("tag-dist:$tag") }
 }
 ```
 
---
+---
+# Example, Define Types
+
+```
+class Distribution
+{
+    has Str $.name;
+    has Str $.description;
+    has Str $.author_id;
+    has Str $.build_id;
+    has Str $.date_updated;
+    has Int $.issues;
+    has Int $.stars;
+    has Str $.url;
+    has Str $.meta_url;
+    has Str $.travis_status;
+    has Str $.travis_url;
+}
+
+class Author
+{
+    has Str $.author_id;
+}
+
+class Tag
+{
+    has Str $.tag;
+}
+
+```
+---
+# Example, Define Types
+
+```
+class Distribution
+{
+    has Str $.name;
+    has Str $.description;
+    has Str $.author_id;
+    has Str $.build_id;
+    has Str $.date_updated;
+    has Int $.issues;
+    has Int $.stars;
+    has Str $.url;
+    has Str $.meta_url;
+    has Str $.travis_status;
+    has Str $.travis_url;
+    `has $.tag-list;        # Won't show up in GraphQL`
+}
+
+class Author
+{
+    has Str $.author_id;
+}
+
+class Tag
+{
+    has Str $.tag;
+}
+
+```
+
+---
+# Example, **new** to load object from Model
+
+```
+class Distribution
+{
+    method new(Str :$name)
+    {
+        my $d = Model.distribution($name) or return;
+        $d<tag-list> = $d<tags>:delete; # Rename tags
+        nextwith(|$d);  # Flatten to pairs (key => value)
+    }
+}
+
+class Author
+{
+    method new(Str $author_id)
+    {
+        my $d = Model.author($author_id) or return;
+        nextwith(|$d);  # Flatten to pairs (key => value)
+    }
+}
+
+class Tag
+{
+    method new(Str $tag)
+    {
+        my $d = Model.tag($tag) or return;
+        nextwith(|$d);  # Flatten to pairs (key => value)
+    }
+}
+
+```
+
+---
+# Example, Add accessors for linked types
+
+```
+class Distribution {
+    method author() returns Author {
+        Author.new($!author_id);
+    }
+    method tags() returns Array[Tag] {
+        Array[Tag].new($!tag-list.map({ Tag.new($_) }));
+    }
+}
+
+class Author {
+    method distributions() returns Array[Distribution] {
+        Array[Distribution].new(
+            Model.author-distributions($!author_id)
+                 .map({ Distribution.new($_) }));
+    }
+}
+
+class Tag {
+    method distributions() returns Array[Distribution] {
+        Array[Distribution].new(
+            Model.tag-distributions($!tag)
+                 .map({ Distribution.new($_) }));
+    }
+}
+```
+---
+# Example, Finally, a top-level **Query** type
 
 ```
 class Query
 {
-    method user(ID :$id! --> User)
-    {
-        @users[$id]
+    method authors() returns Array[Author] {
+        Array[Author].new(
+            Model.authors.map({ Author.new($_) }) );
     }
 
-    method listusers(ID :$start = "0", Int :$count = 3 --> Array[User])
-    {
-        Array[User].new(@users[$start ..^ $start+$count])
+    method distributions() returns Array[Distribution] {
+        Array[Distribution].new(
+            Model.distributions.map({ Distribution.new($_) }) );
+    }
+
+    method tags() returns Array[Tag] {
+        Array[Tag].new(
+            Model.tags.map({ Tag.new($_) }) );
+    }
+
+    method author(Str :$author_id!) returns Author {
+        Author.new($author_id)
+    }
+
+    method distribution(Str :$name!) returns Distribution {
+        Distribution.new($name)
+    }
+
+    method tag(Str :$tag!) returns Tag {
+        Tag.new($tag)
     }
 }
 ```
-
---
+---
+# Example, Start the server
 
 ```
-my $schema = GraphQL::Schema.new(User, Query);
+use GraphQL;
+use GraphQL::Server;
+
+use GraphQL::Modules;  # Where I defined all the types
+
+my $schema = GraphQL::Schema.new(Author, Distribution, Tag, Query);
+
+GraphQL-Server($schema);
 ```
+
+---
+# Simple Query
+
+
+
+
 
 ---
 
 # Simple Query
 
-.left-col[
 ```query
 {
-  user(id: "0") {
-    name
-    birthday
-    status
+  author(author_id:"Curt Tilmes <Curt.Tilmes@nasa.gov>") {
+    author_id
   }
 }
-```]
+
+```
 
 --
 
-.right-col[
 ```response
 {
   "data": {
-    "user": {
-      "name": "Gilligan",
-      "birthday": "Friday",
-      "status": "true"
+    "author": {
+      "author_id": "Curt Tilmes <Curt.Tilmes@nasa.gov>"
     }
   }
 }
-```]        
+```
 
 ---
-
-# Multiple queries, distinguish with aliases
-
-.left-col[
+# Nested graph query
 ```query
 {
-  `a:` user(id: "0") {
-    name
-    birthday
-    status
-  }
-  `b:` user(id: "1") {
-    name
-    birthday
-    status
+  author(author_id:"Curt Tilmes <Curt.Tilmes@nasa.gov>") {
+    author_id
+    distributions {
+      	name
+    }
   }
 }
-```]
+```
 
 --
 
-.right-col[
 ```response
 {
   "data": {
-    "a": {
-      "name": "Gilligan",
-      "birthday": "Friday",
-      "status": "true",
-    },
-    "b": {
-      "name": "Skipper",
-      "birthday": "Monday",
-      "status": "false",
+    "author": {
+      "author_id": "Curt Tilmes <Curt.Tilmes@nasa.gov>",
+      "distributions": [
+        {
+          "name": "GraphQL"
+        },
+        ...
+      ]
     }
   }
 }
-```]
+```
 
 ---
+# Add more fields
 
+```query
+{
+  author(author_id:"Curt Tilmes <Curt.Tilmes@nasa.gov>") {
+    author_id
+    distributions {
+      	name `stars url`
+    }
+  }
+}
+```
+
+```response
+{
+  "data": {
+    "author": {
+      "author_id": "Curt Tilmes <Curt.Tilmes@nasa.gov>",
+      "distributions": [
+        {
+          "name": "GraphQL",
+          `"stars": 6,`
+          `"url": "https://github.com/CurtTilmes/Perl6-GraphQL"`
+        },
+        ...
+      ]
+    }
+  }
+}
+```
+---
+# Follow Tag graph
+```query
+{
+  author(author_id:"Curt Tilmes <Curt.Tilmes@nasa.gov>") {
+    author_id
+    distributions {
+      	name tags { tag }
+    }
+  }
+}
+```
+--
+```response
+{
+  "data": {
+    "author": {
+      "author_id": "Curt Tilmes <Curt.Tilmes@nasa.gov>",
+      "distributions": [
+        {
+          "name": "GraphQL",
+          "tags": [
+            {
+              "tag": "GRAPHQL"
+            }
+          ]
+        },
+        ...
+      ]
+    }
+  }
+}
+
+```
+---
 # Reuse fieldlists with fragments
 
-.left-col[
 ```query
 {
-  a: user(id: "0") {
-    `...somefields`
-  }
-  b: user(id: "1"){
-    `...somefields`
+  author(author_id:"Curt Tilmes <Curt.Tilmes@nasa.gov>") {
+    author_id
+    distributions {
+      	`...name_tags`
+    }
   }
 }
 
-fragment somefields on User {
+fragment `name_tags` on Distribution {
   name
-  birthday
-  status
-}
-```]
-
---
-
-.right-col[
-```response
-{
-  "data": {
-    "a": {
-      "name": "Gilligan",
-      "birthday": "Friday",
-      "status": "true",
-    },
-    "b": {
-      "name": "Skipper",
-      "birthday": "Monday",
-      "status": "false",
-    }
-  }
-}
-```]
-
----
-
-.left-col[
-```query
-{
-  listusers(start: "1",
-            count: 3) {
-    ...somefields
-  }
-}
-```]
-
---
-
-.right-col[
-```response
-{
-  "data": {
-    "listusers": [
-      {
-        "name": "Skipper",
-        "birthday": "Monday",
-        "status": "false"
-      },
-      {
-        "name": "Professor",
-        "birthday": "Tuesday",
-        "status": "true"
-      },
-      {
-        "name": "Ginger",
-        "birthday": "Wednesday",
-        "status": "true"
-      }
-    ]
-  }
-}
-```]
-
----
-
-# Example - Enum
-```
-`enum State <NOT_FOUND ACTIVE INACTIVE SUSPENDED>;`
-
-class User
-{
-    has ID:D $.id is required;
-    has Str:D $.name is required;
-    has Str $.birthday;
-    has Bool $.status;
-    `has State $.state;`
-}
-
-
-my $schema = GraphQL::Schema.new(`State,` User, Query);
-
-```
-
----
-
-.left-col[
-```query
-{
-  listusers(start: "1",
-            count: 3) {
-    name
-    birthday
-    status
-    state
-  }
-}
-```]
-
-.right-col[
-```response
-{
-  "data": {
-    "listusers": [
-      {
-        "name": "Skipper",
-        "birthday": "Monday",
-        "status": "false",
-        "state": "ACTIVE"
-      },
-      {
-        "name": "Professor",
-        "birthday": "Tuesday",
-        "status": "true",
-        "state": "INACTIVE"
-      },
-      {
-        "name": "Ginger",
-        "birthday": "Wednesday",
-        "status": "true",
-        "state": "SUSPENDED"
-      }
-    ]
-  }
-}```]
-
----
-
-# Input Object
-
-```
-class UserInput `is GraphQL::InputObject`
-{
-    has Str $.name;
-    has Str $.birthday;
-    has Bool $.status;
-    has State $.state;
-}
-```
-
----
-
-# Mutation
-
-```
-class Mutation
-{
-    method adduser(UserInput :$newuser! --> ID) {
-        push @users, User.new(id => @users.elems,
-                              name => $newuser.name,
-                              birthday => $newuser.birthday,
-                              status => $newuser.status,
-                              state => $newuser.state);
-        return @users.elems - 1;
-    }
-
-    method updateuser(ID :$id!, UserInput :$userinput! --> User) {
-        for <name birthday status state> -> $field {
-            if $userinput."$field"().defined {
-                @users[$id]."$field"() = $userinput."$field"();
-            }
-        }
-        return Query.user(:$id);
-    }
-}
-
-my $schema = GraphQL::Schema.new(State, User, Query, `UserInput, Mutation`);
-```
----
-
-```query
-mutation {
-  adduser(newuser: { name: "Thurston" })
-}
-```
-
---
-
-```response
-{
-  "data": {
-    "adduser": "5"
+  tags {
+    tag
   }
 }
 ```
-
---
-
-.left-col[
-```query
-{
-  user(id: "5") {
-    name
-    birthday
-    status
-    state
-  }
-}
-```]
-
---
-
-.right-col[
-```response
-{
-  "data": {
-    "user": {
-      "name": "Thurston",
-      "birthday": null,
-      "status": "false",
-      "state": null
-    }
-  }
-}```]
 
 ---
 
@@ -641,23 +693,17 @@ mutation {
 
 .left-col[
 ```query
-mutation (`$bday: String`) {
-  updateuser(id: "5",
-             userinput: {
-               birthday: `$bday`,
-               state: ACTIVE
-             })
-  {
-    name
-    birthday
-    status
-    state
+query ($tag: String) {
+  tag(tag: $tag) {
+    distributions {
+      name
+    }
   }
 }
 ```
 ```
 {
-  "bday":"May 1"
+  "tag":"HTTP"
 }
 ```
 
@@ -670,176 +716,71 @@ mutation (`$bday: String`) {
 ```response
 {
   "data": {
-    "updateuser": {
-      "name": "Thurston",
-      "birthday": "May 1",
-      "status": "false",
-      "state": "ACTIVE"
+    "tag": {
+      "distributions": [
+        {
+          "name": "PostCocoon::Url"
+        },
+        {
+          "name": "WWW"
+        },
+        {
+          "name": "URI::FetchFile"
+        },
+        {
+          "name": "Bailador"
+        },
+        {
+          "name": "LibCurl"
+        }
+      ]
     }
   }
 }```]
 
 ---
+# Descriptions
 
-# Variable data structure
-
-```query
-mutation (`$newuser`: UserInput) {
-  adduser(newuser: `$newuser`)
-}
-```
---
+* Add descriptions to schema with POD
 
 ```
+#| A specific distribution of a Perl6 module
+class Distribution
 {
-  "newuser": {
-    "name": "Lovey",
-    "birthday": "Oct 17",
-    "status": true,
-    "state": "INACTIVE"
-  }
-}
-```
-
---
-
-```response
-{
-  "data": {
-    "adduser": "6"
-  }
+    #| Name of the distribution
+    has Str $.name;
+    #| Description of the distribution
+    has Str $.description;
+    #| author id of the Author of the distribution
+    has Str $.author_id;
+    #| build id
+    has Str $.build_id;
+    #| date updated
+    has Str $.date_updated;
+    #| Number of open github issues
+    has Int $.issues;
+    #| Number of github stars
+    has Int $.stars;
+    ...
+    #| Author object of the distribution
+    method author() returns Author
+    ...
+    #| Tag objects associated with the distribution
+    method tags() returns Array[Tag]
+    ...
 }
 ```
 
 ---
-
-# Control fields with directives (false)
-
-.left-col[
-```query
-query ($extrafields: Boolean) {
-  listusers(count: 2) {
-    id @skip(if: $extrafields)
-    name
-    ...extrafields
-      @include(if: $extrafields)
-  }
-}
-
-fragment extrafields on User {
-  birthday
-  status
-  state
-}
-```
-```
-{
-  "extrafields": `false`
-}
-```]
-
-.right-col[
-```response
-{
-  "data": {
-    "listusers": [
-      {
-        "id": "0",
-        "name": "Gilligan"
-      },
-      {
-        "id": "1",
-        "name": "Skipper"
-      }
-    ]
-  }
-}
-```]
-
----
-
-# Control fields with directives (true)
-
-.left-col[
-```query
-query ($extrafields: Boolean) {
-  listusers(count: 2) {
-    id @skip(if: $extrafields)
-    name
-    ...extrafields
-      @include(if: $extrafields)
-  }
-}
-
-fragment extrafields on User {
-  birthday
-  status
-  state
-}
-```
-```
-{
-  "extrafields": `true`
-}
-```]
-
-.right-col[
-```response
-{
-  "data": {
-    "listusers": [
-      {
-        "name": "Gilligan",
-        "birthday": "Friday",
-        "status": "true",
-        "state": "NOT_FOUND"
-      },
-      {
-        "name": "Skipper",
-        "birthday": "Monday",
-        "status": "false",
-        "state": "ACTIVE"
-      }
-    ]
-  }
-}
-```]
-
----
-
-# Use promises to do slow queries in parallel
-
-
-* Resolver can return promise:
-
-```
-user => sub (:$id)
-{
-    `start {`
-        sleep 2;
-        @users[$id];
-    `}`
-}
-```
-
---
-
-* Perl method is typed, it can't return a promise, use trait
-
-```
-method user(ID :$id! --> User) `is graphql-background`
-{
-    sleep 2;
-    @users[$id];
-}
-```
-
----
-
 # GraphQL
 
+* Easy to add types and fields and maintain backward compatibility of
+interface.
+
+--
+
 * Individual fields and enum values can be marked deprecated, but
-still work
+still work.
 
 --
 
@@ -854,7 +795,7 @@ arbitrary queries.
 --
 
 * Reuse queries with variables for things that change rather than
-making a new query.
+making a new query each time.
 
 --
 
@@ -869,8 +810,8 @@ side validation and caching.
 
 # Conclusion
 
-* Perl 6 implementation still restricted access, but contact me if you
-are interested in it.
+* Perl 6 implementation still in development, please try it out and
+let me know what you like/don't like.
 
 --
 
@@ -879,10 +820,11 @@ are interested in it.
 
 * Almost all public information about GraphQL fully applies to the
 Perl 6 version.
-
 --
 
 ##.center[Thank You!]
+
+- Slides produced with [remark](https://remarkjs.com).
 
     </textarea>
     <script src="https://remarkjs.com/downloads/remark-latest.min.js">
