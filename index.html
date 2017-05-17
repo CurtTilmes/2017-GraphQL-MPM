@@ -349,13 +349,13 @@ class Model
     { $r.smembers('tags') }
 
     method author($author_id)
-    { from-json $r.get("author:$author_id") }
+    { from-json ($r.get("author:$author_id") or return) }
 
     method distribution($name)
-    { from-json $r.get("dist:$name") }
+    { from-json ($r.get("dist:$name") or return) }
 
     method tag($tag)
-    { from-json $r.get("tag:$tag") }
+    { from-json ($r.get("tag:$tag") or return) }
 
     method author-distributions($author_id)
     { $r.smembers("author-dist:$author_id") }
@@ -539,14 +539,6 @@ GraphQL-Server($schema);
 ```
 
 ---
-# Simple Query
-
-
-
-
-
----
-
 # Simple Query
 
 ```query
@@ -828,7 +820,7 @@ Perl 6 version.
 
 ##.center[Thank You!]
 
-- Slides produced with [remark](https://remarkjs.com).
+.center[*Slides produced with [remark](https://remarkjs.com)*]
 
     </textarea>
     <script src="https://remarkjs.com/downloads/remark-latest.min.js">
