@@ -42,8 +42,7 @@ OCaml... AND Perl 6!
 * Often multiple REST queries can be merged into a single GraphQL
 query with a single round trip client to server.
 
-* Check out [https://developer.github.com/early-access/graphql/](https://developer.github.com/early-access/graphql/)
-
+* Check out [https://githubengineering.com/the-github-graphql-api/](https://githubengineering.com/the-github-graphql-api/)
 ---
 
 # Hello World
@@ -261,9 +260,25 @@ my $schema = GraphQL::Schema.new(Query);
 | ID           | ID (subset of Cool) |
 
 ---
+# Constructing a new GraphQL Server
+
+* Model your **data**
+
+  - Perhaps already in an RDBMS?
+
+  - How will you access it?  SQL? NoSQL? Something else?
+
+--
+
+* Define your **schema** (one of the three methods)
+
+  - Each type of Object, with their fields and types
+
+  - Each type of Query, their calling signature
+---
 # Example
 
-* We're going to model the Perl 6 Modules List
+* We're going to model (a very simplified form of) the Perl 6 Modules List
 
 * Three primary types: **Author**, **Tag**, and **Distribution**
 
@@ -310,26 +325,26 @@ my $schema = GraphQL::Schema.new(Query);
 # Example, Loading Redis
 
 ```
-    for jget('https://modules.perl6.org/.json')<dists>.list -> $dist
+for jget('https://modules.perl6.org/.json')<dists>.list -> $dist
     {
-        $r.sadd("authors", $dist<author_id>, :async);
-        $r.sadd("dists", $dist<name>, :async);
+        $r.sadd("authors", $dist<author_id>);
+        $r.sadd("dists", $dist<name>);
 
-        $r.setnx("dist:$dist<name>", to-json($dist), :async);
+        $r.setnx("dist:$dist<name>", to-json($dist));
 
         my $author-rec = { author_id => $dist<author_id> };
-        $r.setnx("author:$dist<author_id>", to-json($author-rec), :async);
+        $r.setnx("author:$dist<author_id>", to-json($author-rec));
 
-        $r.sadd("author-dist:$dist<author_id>", $dist<name>, :async);
+        $r.sadd("author-dist:$dist<author_id>", $dist<name>);
 
         for $dist<tags>.list -> $tag
         {
-            $r.sadd("tags", $tag, :async);
+            $r.sadd("tags", $tag);
 
             my $tag-rec = { tag => $tag };
-            $r.setnx("tag:$tag", to-json($tag-rec), :async);
+            $r.setnx("tag:$tag", to-json($tag-rec));
 
-            $r.sadd("tag-dist:$tag", $dist<name>, :async);
+            $r.sadd("tag-dist:$tag", $dist<name>);
         }
     }
 ```
