@@ -26,7 +26,27 @@ Curt Tilmes
 
 # Introduction
 
-* GraphQL invented by Facebook to improve mobile app performance
+* **GraphQL** invented by Facebook to improve mobile app performance
+
+* Now widely used within Facebook, and growing in popularity
+
+--
+
+* Open Source reference implementation and specification at
+[graphql.org](http://graphql.org)
+
+--
+
+* Implementations: Javascript, Ruby, PHP, Python, Java, C/C++, Go,
+Scala, .NET, Elixir, Haskell, SQL, Lua, Elm, Clojure, Swift,
+OCaml
+
+
+---
+
+# Introduction
+
+* **GraphQL** invented by Facebook to improve mobile app performance
 
 * Now widely used within Facebook, and growing in popularity
 
@@ -35,14 +55,19 @@ Curt Tilmes
 
 * Implementations: Javascript, Ruby, PHP, Python, Java, C/C++, Go,
 Scala, .NET, Elixir, Haskell, SQL, Lua, Elm, Clojure, Swift,
-OCaml... AND Perl 6!
+OCaml... **AND Perl 6!**
+
+--
 
 * Many are migrating from RESTful APIs to GraphQL.
 
 * Often multiple REST queries can be merged into a single GraphQL
 query with a single round trip client to server.
 
+--
+
 * Check out [https://githubengineering.com/the-github-graphql-api/](https://githubengineering.com/the-github-graphql-api/)
+
 ---
 
 # Hello World
@@ -511,6 +536,18 @@ class Tag {
 ```
 class Query
 {
+    method author(Str :$author_id!) returns Author {
+        Author.new($author_id)
+    }
+
+    method distribution(Str :$name!) returns Distribution {
+        Distribution.new($name)
+    }
+
+    method tag(Str :$tag!) returns Tag {
+        Tag.new($tag)
+    }
+
     method authors() returns Array[Author] {
         Array[Author].new(
             Model.authors.map({ Author.new($_) }) );
@@ -524,18 +561,6 @@ class Query
     method tags() returns Array[Tag] {
         Array[Tag].new(
             Model.tags.map({ Tag.new($_) }) );
-    }
-
-    method author(Str :$author_id!) returns Author {
-        Author.new($author_id)
-    }
-
-    method distribution(Str :$name!) returns Distribution {
-        Distribution.new($name)
-    }
-
-    method tag(Str :$tag!) returns Tag {
-        Tag.new($tag)
     }
 }
 ```
